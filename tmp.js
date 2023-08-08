@@ -17,7 +17,7 @@ const queryDataToFix = /* sql */`
       ))
     ) LIMIT 1) AS seq_estoque,
     parque.cod_centro_estoque_usados,
-    aps.dth_inclusao,
+    aps.dth_inclusao::text,
     isa.seq_item_saida_atendimento,
     isa.quantidade,
     isa.cod_item,
@@ -132,6 +132,8 @@ module.exports = {
   
           versoes = await queryVersoesEstoque(client, row.seq_estoque, dthMovimentacao)
   
+          console.log('versoes', JSON.stringify(versoes), row.seq_estoque, dthMovimentacao)
+
           modeloBase = versoes.rows[0]
         }
   
@@ -205,17 +207,19 @@ module.exports = {
           
           console.log('\n'.repeat(3), num_versao_atual, num_versao_provisoria)
   
+          await client.query(/* sql */`
+            UPDATE estoque.versao_estoque
+            SET num_versao = ${num_versao_provisoria}
+            WHERE cod_estoque = ${row.seq_estoque}
+            AND num_versao = ${num_versao_atual};
+          `)
+
           if (!!updates?.length) {
-            await client.query(/* sql */`
-              UPDATE estoque.versao_estoque
-              SET num_versao = ${num_versao_provisoria}
-              WHERE cod_estoque = ${row.seq_estoque}
-              AND num_versao = ${num_versao_atual};
-            `)
-  
             await client.query(updates.join(' '))
           }
   
+          console.log('versaoUpdated', row.seq_estoque, JSON.stringify(novaVersao))
+
           const versaoUpdated = await client.query(/* sql */`
             UPDATE estoque.versao_estoque
             SET
@@ -228,7 +232,7 @@ module.exports = {
             AND num_versao = ${num_versao_provisoria}
             RETURNING seq_versao_estoque;
           `)
-  
+
           cod_versao_estoque_final = versaoUpdated.rows[0].seq_versao_estoque
         } else {
           const keysNotUsed = [
@@ -258,6 +262,7 @@ module.exports = {
             LIMIT 1
           `)
   
+          console.log('versaoCreated', estoqueCreated.rows[0].seq_estoque)
           cod_versao_estoque_final = versaoCreated.rows[0].seq_versao_estoque
           
           await client.query(/* sql */`
@@ -269,6 +274,8 @@ module.exports = {
   
         if (!cod_versao_estoque_final) throw new Error('Não foi possível definir uma versão de estoque para atualizar a movimentação!')
   
+        console.log('\n'.repeat(3), 'novaVersao:', JSON.stringify(novaVersao), '\n')
+        
         await client.query(/* sql */`
           UPDATE estoque.item_saida_atendimento
           SET 
@@ -276,8 +283,6 @@ module.exports = {
           WHERE seq_item_saida_atendimento = ${row.seq_item_saida_atendimento};
         `)
   
-        console.log('\n'.repeat(3), 'novaVersao:', JSON.stringify(novaVersao), '\n')
-        
         await client.query('COMMIT')
       } catch (err) {
         await client.query('ROLLBACK')
